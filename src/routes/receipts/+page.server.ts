@@ -3,9 +3,9 @@ import { computeReceiptShares } from '$lib/money/index.js';
 import { deleteReceipt, listParticipants, listReceipts } from '$lib/server/repository.js';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ locals }) => {
 	try {
-		const [participants, receipts] = await Promise.all([listParticipants(), listReceipts()]);
+		const [participants, receipts] = await Promise.all([listParticipants(locals.supabase), listReceipts(locals.supabase)]);
 		const nameOf = (id: string) =>
 			participants.find((participant) => participant.id === id)?.displayName ?? 'Unbekannt';
 
@@ -51,13 +51,13 @@ export const load: PageServerLoad = async () => {
 };
 
 export const actions: Actions = {
-	delete: async ({ request }) => {
+	delete: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = String(form.get('id') ?? '');
 		if (!id) return fail(400, { error: 'Kein Beleg angegeben.' });
 
 		try {
-			await deleteReceipt(id);
+			await deleteReceipt(locals.supabase, id);
 		} catch (error) {
 			return fail(500, { error: error instanceof Error ? error.message : String(error) });
 		}

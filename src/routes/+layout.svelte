@@ -3,7 +3,10 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { page } from '$app/state';
 
-	let { children } = $props();
+	let { children, data } = $props();
+
+	// Vor dem Login und beim Verknuepfen gibt es nichts zu navigieren.
+	const showNav = $derived(Boolean(data.participant));
 
 	const tabs = [
 		{ href: '/', label: 'Übersicht' },
@@ -24,14 +27,22 @@
 <div class="app">
 	<header class="topbar">
 		<h1>WG-Kassenbuch</h1>
-		<span class="phase">Basel</span>
+		{#if data.participant}
+			<form method="POST" action="/auth/signout">
+				<button class="ghost" type="submit">{data.participant.displayName} · abmelden</button>
+			</form>
+		{:else}
+			<span class="phase">Basel</span>
+		{/if}
 	</header>
 
-	<nav class="tabs">
-		{#each tabs as tab (tab.href)}
-			<a href={tab.href} aria-current={isCurrent(tab.href) ? 'page' : undefined}>{tab.label}</a>
-		{/each}
-	</nav>
+	{#if showNav}
+		<nav class="tabs">
+			{#each tabs as tab (tab.href)}
+				<a href={tab.href} aria-current={isCurrent(tab.href) ? 'page' : undefined}>{tab.label}</a>
+			{/each}
+		</nav>
+	{/if}
 
 	{@render children()}
 </div>

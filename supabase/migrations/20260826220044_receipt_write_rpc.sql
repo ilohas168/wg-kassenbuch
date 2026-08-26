@@ -8,7 +8,11 @@
 -- security invoker: die Funktionen laufen mit den Rechten des Aufrufers, damit die
 -- RLS-Policies aus Phase 2 auch hier greifen.
 
--- Interner Helfer: ersetzt alle Positionen eines Belegs. Nicht Teil der API.
+-- Ersetzt alle Positionen eines Belegs. Gedacht als Helfer fuer die beiden Funktionen
+-- darunter, aber bewusst ohne Rechteentzug: create_receipt laeuft als security invoker,
+-- also wird diese Funktion mit den Rechten des Aufrufers ausgefuehrt und braucht dessen
+-- execute-Recht. Ein Entzug haette den ganzen Schreibpfad blockiert. Schaden richtet ein
+-- Direktaufruf nicht an - die Policies auf line_items und line_item_shares gelten auch hier.
 create or replace function public.set_line_items(target_receipt_id uuid, items jsonb)
 returns void
 language plpgsql
@@ -55,8 +59,6 @@ begin
   end loop;
 end;
 $function$;
-
-revoke execute on function public.set_line_items(uuid, jsonb) from public;
 
 create or replace function public.create_receipt(payload jsonb)
 returns uuid

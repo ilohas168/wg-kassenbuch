@@ -22,9 +22,19 @@ let db: PGlite;
 
 beforeAll(async () => {
 	db = await PGlite.create();
-	// Supabase bringt das auth-Schema mit; hier steht ein Stub dafuer, damit die
-	// Fremdschluesselreferenz aus participants aufloest.
-	await db.exec('create schema auth; create table auth.users (id uuid primary key);');
+	// Supabase bringt das auth-Schema und die Rollen mit; hier stehen Stubs dafuer.
+	// auth.uid() ist absichtlich dieselbe Definition wie bei Supabase: der Wert kommt
+	// aus dem JWT-Claim, den PostgREST pro Anfrage setzt.
+	await db.exec(`
+		create schema auth;
+		create table auth.users (id uuid primary key);
+		create role anon;
+		create role authenticated;
+		create role service_role;
+		create or replace function auth.uid() returns uuid language sql stable as $stub$
+			select nullif(nullif(current_setting('request.jwt.claims', true), '')::json->>'sub', '')::uuid;
+		$stub$;
+	`);
 
 	for (const file of readdirSync(MIGRATIONS).sort()) {
 		await db.exec(readFileSync(join(MIGRATIONS, file), 'utf8'));
@@ -332,6 +342,17 @@ describe('Rueckweg in die Rechenlogik', () => {
 	});
 });
 
+/** Fuehrt einen Block als eingeloggter Nutzer aus - Rolle und JWT-Claim wie bei PostgREST. */
+async function asAuthenticated(authUserId: string | null, run: () => Promise<void>) {
+	const claims = authUserId ? JSON.stringify({ sub: authUserId }) : '';
+	await db.exec(`set role authenticated; select set_config('request.jwt.claims', '${claims}', false);`);
+	try {
+		await run();
+	} finally {
+		await db.exec("reset role; select set_config('request.jwt.claims', '', false);");
+	}
+}
+
 async function count(table: string): Promise<number> {
 	const result = await db.query<{ count: string }>(`select count(*)::text as count from ${table}`);
 	return Number(result.rows[0].count);
@@ -376,3 +397,109 @@ async function createReceipt(options: {
 	]);
 	return result.rows[0].create_receipt;
 }
+
+describe('RLS', () => {
+	const AUTH_USER = '00000000-0000-4000-8000-00000000a001';
+	const OTHER_USER = '00000000-0000-4000-8000-00000000a002';
+
+	beforeAll(async () => {
+		await db.exec(
+			`insert into auth.users (id) values ('${AUTH_USER}'), ('${OTHER_USER}') on conflict do nothing;`
+		);
+	});
+
+	afterEach(async () => {
+		await db.exec('update participants set auth_user_id = null;');
+	});
+
+	it('zeigt einem eingeloggten Nutzer ohne Verknuepfung nichts', async () => {
+		await asAuthenticated(AUTH_USER, async () => {
+			const rows = await db.query('select * from participants');
+			expect(rows.rows).toHaveLength(0);
+			await expect(
+				db.exec(
+					`insert into receipts (merchant, purchased_at, currency, total_minor, fx_rate_to_chf, total_chf_minor, paid_by)
+					 values ('Fremd', '2026-08-27', 'CHF', 100, 1, 100, '${FABIAN}');`
+				)
+			).rejects.toThrow(/row-level security/);
+		});
+	});
+
+	it('laesst ein verknuepftes Mitglied alles lesen und schreiben', async () => {
+		await db.exec(`update participants set auth_user_id = '${AUTH_USER}' where id = '${SHINICHIRO}';`);
+
+		await asAuthenticated(AUTH_USER, async () => {
+			const rows = await db.query('select * from participants');
+			expect(rows.rows).toHaveLength(3);
+
+			// Der Schreibpfad muss als authenticated durchlaufen, nicht nur als Superuser.
+			const created = await db.query<{ create_receipt: string }>('select create_receipt($1::jsonb)', [
+				JSON.stringify({
+					merchant: 'Migros',
+					purchased_at: '2026-08-27',
+					currency: 'CHF',
+					total_minor: 900,
+					fx_rate_to_chf: '1',
+					total_chf_minor: 900,
+					paid_by: SHINICHIRO,
+					line_items: [
+						{ label: 'Brot', amount_minor: 900, shares: [{ participant_id: SHINICHIRO, weight: 1 }] }
+					]
+				})
+			]);
+			expect(created.rows[0].create_receipt).toMatch(/^[0-9a-f-]{36}$/);
+			expect((await db.query('select * from line_items')).rows).toHaveLength(1);
+		});
+	});
+
+	it('sperrt einen Nutzer aus, dessen Mitglied archiviert wurde', async () => {
+		await db.exec(
+			`update participants set auth_user_id = '${AUTH_USER}', is_active = false where id = '${SHINICHIRO}';`
+		);
+		await asAuthenticated(AUTH_USER, async () => {
+			expect((await db.query('select * from participants')).rows).toHaveLength(0);
+		});
+		await db.exec(`update participants set is_active = true where id = '${SHINICHIRO}';`);
+	});
+
+	it('laesst ein Mitglied Gaeste anlegen, aber keine weiteren Mitglieder', async () => {
+		await db.exec(`update participants set auth_user_id = '${AUTH_USER}' where id = '${SHINICHIRO}';`);
+
+		await asAuthenticated(AUTH_USER, async () => {
+			await db.exec("insert into participants (display_name, kind) values ('Yuki', 'guest');");
+			await expect(
+				db.exec("insert into participants (display_name, kind) values ('Fremder', 'member');")
+			).rejects.toThrow(/row-level security/);
+		});
+	});
+
+	it('laesst niemanden Teilnehmer loeschen oder Konten umhaengen', async () => {
+		await db.exec(`update participants set auth_user_id = '${AUTH_USER}' where id = '${SHINICHIRO}';`);
+
+		await asAuthenticated(AUTH_USER, async () => {
+			await expect(db.exec(`delete from participants where id = '${FABIAN}';`)).rejects.toThrow(
+				/permission denied/
+			);
+			await expect(
+				db.exec(`update participants set auth_user_id = '${OTHER_USER}' where id = '${FABIAN}';`)
+			).rejects.toThrow(/permission denied/);
+			await expect(
+				db.exec(`update participants set kind = 'member' where id = '${FABIAN}';`)
+			).rejects.toThrow(/permission denied/);
+
+			// Umbenennen bleibt erlaubt, das ist Alltag.
+			await db.exec(`update participants set display_name = 'Shin' where id = '${SHINICHIRO}';`);
+		});
+
+		await db.exec(`update participants set display_name = 'Shinichiro' where id = '${SHINICHIRO}';`);
+	});
+
+	it('gibt anon keinerlei Zugriff', async () => {
+		await db.exec('set role anon;');
+		try {
+			await expect(db.query('select * from participants')).rejects.toThrow(/permission denied/);
+		} finally {
+			await db.exec('reset role;');
+		}
+	});
+});

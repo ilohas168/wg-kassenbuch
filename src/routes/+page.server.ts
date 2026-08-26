@@ -2,12 +2,12 @@ import { computeBalances, simplifyDebts, type Participant } from '$lib/money/ind
 import { listParticipants, listReceipts, listSettlements } from '$lib/server/repository.js';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ locals }) => {
 	try {
 		const [participants, receipts, settlements] = await Promise.all([
-			listParticipants(),
-			listReceipts(),
-			listSettlements()
+			listParticipants(locals.supabase),
+			listReceipts(locals.supabase),
+			listSettlements(locals.supabase)
 		]);
 
 		const balances = computeBalances(participants, receipts, settlements);

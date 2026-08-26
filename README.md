@@ -8,7 +8,7 @@ bei Widersprüchen gilt die Spec, nicht dieses README.
 
 - [x] **Phase 0** — Repo, SvelteKit, Schema, Migrationen, Seed mit drei Mitgliedern
 - [ ] **Phase 1** — Manuelle Erfassung, Aufteilung, Saldoberechnung, Tests
-- [ ] **Phase 2** — Magic Link, RLS-Policies, PWA, Vercel
+- [x] **Phase 2** — Magic Link, RLS-Policies, PWA, Vercel
 - [ ] **Phase 3** — Fotoupload, OCR-Endpoint, Review-Screen
 - [ ] **Phase 4** — EUR-Flow in der UI
 - [ ] **Phase 5** — Gästeverwaltung und Abrechnung
@@ -29,6 +29,32 @@ npx supabase link --project-ref <project-ref>   # ref steht in der Projekt-URL
 npm run db:push                             # Schema + Seed ins Cloud-Projekt
 cp .env.example .env                        # Werte aus Project Settings -> API
 ```
+
+## Anmeldung
+
+Login läuft über Magic Link, ohne Passwort. Zwei Dinge müssen dafür stimmen:
+
+1. **`ALLOWED_EMAILS`** in `.env` bzw. in den Vercel-Variablen — kommagetrennt die drei
+   WG-Adressen. Ohne diese Liste ist der Login gesperrt: Supabase verschickt Magic Links
+   sonst an jede Adresse, die danach fragt, und die App hängt öffentlich im Netz.
+2. Im Supabase-Dashboard unter **Authentication → URL Configuration**: Site URL auf die
+   Vercel-Domain, und `http://localhost:5173/auth/callback` sowie
+   `https://<domain>/auth/callback` als Redirect URLs eintragen.
+
+Beim ersten Login wählt jede Person einmalig ihr Mitglied aus („Wer bist du?"). Das setzt
+`participants.auth_user_id` und passiert genau einmal pro Person. Die Spec sagt nicht, wie
+diese Verknüpfung zustande kommen soll — eine E-Mail-Spalte im Schema wäre die Alternative
+gewesen, aber die steht nicht im Datenmodell.
+
+## Deploy
+
+```sh
+npx vercel link
+npx vercel env add PUBLIC_SUPABASE_URL          # und die anderen drei aus .env.example
+npx vercel --prod
+```
+
+Die Runtime ist auf `fra1` festgenagelt, passend zur Datenbank in Frankfurt.
 
 ## Skripte
 
