@@ -86,12 +86,30 @@ export function parseReceiptDraft(raw: unknown, participants: Participant[]): Re
 		};
 	});
 
-	// Das Beleg-Total ist die Summe der Positionen. Ein abweichendes Total aus dem OCR
-	// bekommt in Phase 3 einen eigenen Weg, in der manuellen Erfassung gibt es das nicht.
+	// Das Beleg-Total ist die Summe der Positionen. Weicht das Total auf dem Beleg davon
+	// ab, hat der Review-Screen das angezeigt und der Nutzer hat entschieden - hier zaehlt,
+	// was tatsaechlich erfasst ist, damit Anteile und Total nie auseinanderlaufen.
 	const totalMinor = sumLineItems(lineItems);
-	const fxRateToChf = currency === 'CHF' ? '1' : expectString(input.fxRateToChf, 'Wechselkurs');
-	const rate = parseRate(fxRateToChf);
-	const totalChfMinor = currency === 'CHF' ? totalMinor : freezeTotalChf(totalMinor, rate);
+
+	let fxRateToChf = '1';
+	let totalChfMinor = totalMinor;
+
+	if (currency !== 'CHF') {
+		fxRateToChf = expectString(input.fxRateToChf, 'Wechselkurs');
+		let rate;
+		try {
+			rate = parseRate(fxRateToChf);
+		} catch (error) {
+			throw new DraftError(error instanceof Error ? error.message : String(error));
+		}
+
+		// Beim Effektivkurs ist das CHF-Total die tatsaechliche Kartenbelastung und damit
+		// die genauere Zahl - sie kommt aus dem Formular. Fehlt sie, wird gerechnet.
+		// assertReceiptIsConsistent prueft danach, dass beides zusammenpasst.
+		totalChfMinor = Number.isSafeInteger(input.totalChfMinor)
+			? (input.totalChfMinor as number)
+			: freezeTotalChf(totalMinor, rate);
+	}
 
 	const draft: ReceiptDraft = {
 		merchant,

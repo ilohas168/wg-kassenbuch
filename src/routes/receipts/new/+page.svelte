@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ReceiptForm from '$lib/components/ReceiptForm.svelte';
 	import { prepareReceiptPhoto } from '$lib/photo.js';
-	import { formatMinor, type ParticipantId } from '$lib/money/index.js';
+	import { formatMinor, type Currency, type ParticipantId } from '$lib/money/index.js';
 	import { todayIso } from '$lib/date.js';
 
 	let { data, form } = $props();
@@ -13,6 +13,7 @@
 		initial: {
 			merchant: string;
 			purchasedAt: string;
+			currency: Currency;
 			rows: { label: string; amount: string; participantIds: ParticipantId[] }[];
 		} | null;
 	}
@@ -64,6 +65,7 @@
 				initial: {
 					merchant: suggestion.merchant,
 					purchasedAt: suggestion.purchasedAt || todayIso(),
+					currency: suggestion.currency,
 					rows: suggestion.lineItems.map((item: { label: string; amountMinor: number }) => ({
 						label: item.label,
 						amount: formatMinor(item.amountMinor),
@@ -73,8 +75,7 @@
 			};
 
 			if (suggestion.currency !== 'CHF') {
-				notice =
-					'Der Beleg sieht nach EUR aus. Die Währungsumrechnung in der Erfassung kommt in Phase 4 — bis dahin bitte die CHF-Beträge eintragen.';
+				notice = 'Der Beleg ist in EUR. Trag unten den Kurs ein — am besten die CHF-Belastung deiner Karte.';
 			}
 		} catch (caught) {
 			notice = caught instanceof Error ? caught.message : String(caught);

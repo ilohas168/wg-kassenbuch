@@ -8,6 +8,9 @@
 		merchant: data.receipt.merchant,
 		purchasedAt: data.receipt.purchasedAt,
 		paidBy: data.receipt.paidBy,
+		currency: data.receipt.currency,
+		fxRateToChf: data.receipt.fxRateToChf,
+		totalChfMinor: data.receipt.totalChfMinor,
 		rows: data.receipt.lineItems.map((item) => ({
 			label: item.label,
 			amount: formatMinor(item.amountMinor),

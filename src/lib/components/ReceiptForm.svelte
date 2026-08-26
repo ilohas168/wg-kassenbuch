@@ -1,9 +1,14 @@
 <script lang="ts">
 	import {
 		computeReceiptShares,
+		effectiveRate,
 		formatMinor,
 		formatMoney,
+		formatRate,
+		freezeTotalChf,
+		parseRate,
 		tryParseMoneyInput,
+		type Currency,
 		type Participant,
 		type ParticipantId
 	} from '$lib/money/index.js';
@@ -20,6 +25,9 @@
 		purchasedAt: string;
 		/** Fehlt beim Vorschlag aus dem Foto - wer bezahlt hat, steht selten auf dem Beleg. */
 		paidBy?: ParticipantId;
+		currency?: Currency;
+		fxRateToChf?: string;
+		totalChfMinor?: number;
 		rows: DraftRow[];
 	}
 
@@ -68,7 +76,23 @@
 	// svelte-ignore state_referenced_locally
 	let paidBy = $state(initial?.paidBy ?? firstMemberId());
 	// svelte-ignore state_referenced_locally
+	let currency = $state<Currency>(initial?.currency ?? 'CHF');
+	// svelte-ignore state_referenced_locally
 	let rows = $state<DraftRow[]>(initialRows());
+
+	/**
+	 * Kurs-Eingabe. Der Effektivkurs ist die Voreinstellung, weil er der genauere ist:
+	 * in der Kartenbelastung stecken die Gebuehren schon drin, im EZB-Kurs nicht.
+	 */
+	let rateMode = $state<'effective' | 'reference'>('effective');
+	// svelte-ignore state_referenced_locally
+	let chargedChfText = $state(initial?.totalChfMinor != null ? formatMinor(initial.totalChfMinor) : '');
+	// svelte-ignore state_referenced_locally
+	let rateText = $state(initial?.fxRateToChf && initial.fxRateToChf !== '1' ? initial.fxRateToChf : '');
+
+	let reference = $state<{ rate: string; date: string } | null>(null);
+	let referenceError = $state<string | null>(null);
+	let referenceLoading = $state(false);
 
 	function firstMemberId(): string {
 		return participants.find((participant) => participant.kind === 'member' && participant.isActive)?.id ?? '';
@@ -102,19 +126,62 @@
 			: null
 	);
 
+	const chargedChfMinor = $derived(
+		chargedChfText.trim() === '' ? null : tryParseMoneyInput(chargedChfText)
+	);
+
+	/**
+	 * Der eingefrorene Kurs und das CHF-Total kommen immer aus derselben Quelle:
+	 * beim Effektivkurs ist das CHF-Total die Kartenbelastung und der Kurs folgt daraus,
+	 * beim Referenzkurs ist es umgekehrt.
+	 */
+	const fx = $derived.by((): { rate: string | null; totalChfMinor: number | null; problem: string | null } => {
+		if (currency === 'CHF') {
+			return { rate: '1', totalChfMinor: totalMinor, problem: null };
+		}
+		if (totalMinor === null) {
+			return { rate: null, totalChfMinor: null, problem: 'Für den Kurs fehlen noch die Beträge' };
+		}
+
+		if (rateMode === 'effective') {
+			if (totalMinor <= 0) {
+				return {
+					rate: null,
+					totalChfMinor: null,
+					problem: 'Effektivkurs braucht ein positives Total — bei Rückgaben den Referenzkurs nehmen'
+				};
+			}
+			if (chargedChfMinor === null || chargedChfMinor <= 0) {
+				return { rate: null, totalChfMinor: null, problem: 'CHF-Belastung der Karte fehlt' };
+			}
+			return {
+				rate: formatRate(effectiveRate(chargedChfMinor, totalMinor)),
+				totalChfMinor: chargedChfMinor,
+				problem: null
+			};
+		}
+
+		try {
+			const rate = parseRate(rateText);
+			return { rate: formatRate(rate), totalChfMinor: freezeTotalChf(totalMinor, rate), problem: null };
+		} catch {
+			return { rate: null, totalChfMinor: null, problem: 'Kurs fehlt oder ist ungültig' };
+		}
+	});
+
 	const problems = $derived(collectProblems());
 	const isValid = $derived(problems.length === 0);
 
 	/** Vorschau der Anteile - dieselbe Funktion, die spaeter auch den Saldo rechnet. */
 	const preview = $derived.by(() => {
-		if (totalMinor === null || !isValid) return null;
+		if (totalMinor === null || !isValid || fx.rate === null || fx.totalChfMinor === null) return null;
 		try {
 			return computeReceiptShares({
-				currency: 'CHF',
+				currency,
 				paidBy,
 				totalMinor,
-				fxRateToChf: '1',
-				totalChfMinor: totalMinor,
+				fxRateToChf: fx.rate,
+				totalChfMinor: fx.totalChfMinor,
 				lineItems: rows.map((row, index) => ({
 					label: row.label,
 					amountMinor: parsedRows[index].amountMinor as number,
@@ -139,7 +206,9 @@
 		JSON.stringify({
 			merchant,
 			purchasedAt,
-			currency: 'CHF',
+			currency,
+			fxRateToChf: fx.rate,
+			totalChfMinor: fx.totalChfMinor,
 			photoPath,
 			paidBy,
 			lineItems: rows.map((row, index) => ({
@@ -150,6 +219,45 @@
 		})
 	);
 
+	// Referenzkurs im Hintergrund holen. Schlaegt das fehl, blockiert nichts - dann steht
+	// da ein Hinweis und der Kurs wird von Hand eingetragen.
+	$effect(() => {
+		const date = purchasedAt;
+		if (currency !== 'EUR' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+			reference = null;
+			referenceError = null;
+			return;
+		}
+
+		let cancelled = false;
+		referenceLoading = true;
+
+		fetch(`/api/fx-rate?date=${date}`)
+			.then((response) => response.json())
+			.then((result) => {
+				if (cancelled) return;
+				if (result.rate) {
+					reference = { rate: result.rate, date: result.date };
+					referenceError = null;
+				} else {
+					reference = null;
+					referenceError = result.error ?? 'Kein Referenzkurs verfügbar.';
+				}
+			})
+			.catch(() => {
+				if (cancelled) return;
+				reference = null;
+				referenceError = 'Der Kursdienst ist nicht erreichbar.';
+			})
+			.finally(() => {
+				if (!cancelled) referenceLoading = false;
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	});
+
 	function collectProblems(): string[] {
 		const found: string[] = [];
 		if (merchant.trim() === '') found.push('Laden fehlt');
@@ -159,6 +267,7 @@
 			if (row.amountMinor === null) found.push(`Position ${index + 1}: Betrag fehlt oder ist ungültig`);
 			if (row.participantIds.length === 0) found.push(`Position ${index + 1}: niemand zugeordnet`);
 		});
+		if (fx.problem) found.push(fx.problem);
 		return found;
 	}
 
@@ -178,12 +287,6 @@
 		if (rows.length === 0) addRow();
 	}
 
-	/** Gäste sind hier bewusst nicht dabei - sonst zahlt der Gast das Waschmittel mit. */
-	function allTogether() {
-		const ids = activeMembers.map((participant) => participant.id);
-		rows = rows.map((row) => ({ ...row, participantIds: [...ids] }));
-	}
-
 	/** Die nicht erkannte Differenz als eigene Position - explizit statt stillschweigend. */
 	function addDifferenceRow() {
 		rows = [
@@ -191,15 +294,25 @@
 			{
 				label: 'Nicht erkannt',
 				amount: formatMinor(mismatchMinor),
-				participantIds: participants
-					.filter((participant) => participant.kind === 'member' && participant.isActive)
-					.map((participant) => participant.id)
+				participantIds: activeMembers.map((participant) => participant.id)
 			}
 		];
 	}
 
+	/** Gäste sind hier bewusst nicht dabei - sonst zahlt der Gast das Waschmittel mit. */
+	function allTogether() {
+		const ids = activeMembers.map((participant) => participant.id);
+		rows = rows.map((row) => ({ ...row, participantIds: [...ids] }));
+	}
+
 	function allPrivate() {
 		rows = rows.map((row) => ({ ...row, participantIds: paidBy ? [paidBy] : [] }));
+	}
+
+	function applyReferenceRate() {
+		if (!reference) return;
+		rateMode = 'reference';
+		rateText = reference.rate;
 	}
 </script>
 
@@ -236,15 +349,95 @@
 					{/each}
 				</select>
 			</div>
+			<div>
+				<label for="currency">Währung</label>
+				<select id="currency" bind:value={currency}>
+					<option value="CHF">CHF</option>
+					<option value="EUR">EUR</option>
+				</select>
+			</div>
 		</div>
 	</div>
+
+	{#if currency === 'EUR'}
+		<div class="card">
+			<div class="chips" style="margin-bottom: 0.6rem">
+				<button
+					type="button"
+					class="chip"
+					aria-pressed={rateMode === 'effective'}
+					onclick={() => (rateMode = 'effective')}
+				>
+					Effektivkurs
+				</button>
+				<button
+					type="button"
+					class="chip"
+					aria-pressed={rateMode === 'reference'}
+					onclick={() => (rateMode = 'reference')}
+				>
+					Referenzkurs
+				</button>
+			</div>
+
+			{#if rateMode === 'effective'}
+				<label for="charged">Was die Karte in CHF belastet hat</label>
+				<input
+					id="charged"
+					type="text"
+					inputmode="decimal"
+					bind:value={chargedChfText}
+					placeholder="45.12"
+					class="amount"
+				/>
+				<p class="muted" style="margin-bottom: 0">
+					Der genauere Weg: in der Kartenbelastung stecken die Gebühren schon drin.
+				</p>
+			{:else}
+				<label for="rate">Kurs EUR → CHF</label>
+				<input
+					id="rate"
+					type="text"
+					inputmode="decimal"
+					bind:value={rateText}
+					placeholder="0.9312"
+					class="amount"
+				/>
+				<p class="muted" style="margin-bottom: 0">
+					{#if referenceLoading}
+						EZB-Kurs wird geholt …
+					{:else if reference}
+						EZB-Kurs vom {reference.date}: {reference.rate}
+					{:else if referenceError}
+						{referenceError} Bitte von Hand eintragen.
+					{/if}
+				</p>
+			{/if}
+
+			{#if reference && rateText !== reference.rate}
+				<button type="button" onclick={applyReferenceRate} style="margin-top: 0.5rem">
+					EZB-Kurs {reference.rate} übernehmen
+				</button>
+			{/if}
+
+			{#if fx.rate && fx.totalChfMinor !== null}
+				<div
+					class="row"
+					style="margin-top: 0.6rem; border-top: 1px solid var(--border); padding-top: 0.5rem"
+				>
+					<span class="muted">Eingefrorener Kurs {fx.rate}</span>
+					<span class="amount">{formatMoney(fx.totalChfMinor)}</span>
+				</div>
+			{/if}
+		</div>
+	{/if}
 
 	{#if mismatchMinor !== 0}
 		<div class="error">
 			<strong>Das Total stimmt nicht mit den Positionen überein.</strong>
 			<div style="margin-top: 0.3rem">
-				Auf dem Beleg steht {formatMoney(scannedTotalMinor ?? 0)}, erfasst sind
-				{formatMoney(totalMinor ?? 0)} — Differenz {formatMoney(mismatchMinor)}.
+				Auf dem Beleg steht {formatMoney(scannedTotalMinor ?? 0, currency)}, erfasst sind
+				{formatMoney(totalMinor ?? 0, currency)} — Differenz {formatMoney(mismatchMinor, currency)}.
 				Vermutlich hat die Erkennung eine Zeile nicht gelesen.
 			</div>
 			<button type="button" onclick={addDifferenceRow} style="margin-top: 0.5rem">
@@ -328,7 +521,7 @@
 	<div class="card">
 		<div class="row">
 			<strong>Total</strong>
-			<strong class="amount">{totalMinor === null ? '—' : formatMoney(totalMinor)}</strong>
+			<strong class="amount">{totalMinor === null ? '—' : formatMoney(totalMinor, currency)}</strong>
 		</div>
 		{#if preview}
 			{#each [...preview.entries()].sort( (a, b) => b[1] - a[1] ) as [participantId, shareMinor] (participantId)}
@@ -337,6 +530,9 @@
 					<span class="amount">{formatMoney(shareMinor)}</span>
 				</div>
 			{/each}
+			{#if currency !== 'CHF'}
+				<p class="muted" style="margin: 0.4rem 0 0">Anteile in CHF, zum eingefrorenen Kurs.</p>
+			{/if}
 		{/if}
 	</div>
 

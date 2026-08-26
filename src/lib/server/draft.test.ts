@@ -49,6 +49,47 @@ describe('parseReceiptDraft', () => {
 		expect(draft.totalChfMinor).toBe(4511);
 	});
 
+	it('nimmt beim Effektivkurs die Kartenbelastung als CHF-Total', () => {
+		// 47.30 EUR wurden mit 45.12 CHF belastet.
+		const draft = parseReceiptDraft(
+			{
+				...valid,
+				currency: 'EUR',
+				fxRateToChf: '0.9539112051',
+				totalChfMinor: 4512,
+				lineItems: [{ label: 'Kaese', amountMinor: 4730, participantIds: ['m1', 'm2'] }]
+			},
+			participants
+		);
+		expect(draft.totalMinor).toBe(4730);
+		expect(draft.totalChfMinor).toBe(4512);
+		expect(draft.fxRateToChf).toBe('0.9539112051');
+	});
+
+	it('weist ein CHF-Total ab, das nicht zum Kurs passt', () => {
+		expect(() =>
+			parseReceiptDraft(
+				{
+					...valid,
+					currency: 'EUR',
+					fxRateToChf: '0.9537',
+					totalChfMinor: 9999,
+					lineItems: [{ label: 'Kaese', amountMinor: 4730, participantIds: ['m1'] }]
+				},
+				participants
+			)
+		).toThrow(/Kurs und CHF-Total passen nicht zusammen/);
+	});
+
+	it('weist einen unbrauchbaren Kurs ab', () => {
+		expect(() =>
+			parseReceiptDraft({ ...valid, currency: 'EUR', fxRateToChf: 'null' }, participants)
+		).toThrow(/Ungueltiger Wechselkurs/);
+		expect(() =>
+			parseReceiptDraft({ ...valid, currency: 'EUR', fxRateToChf: '0.12345678901' }, participants)
+		).toThrow(/Nachkommastellen/);
+	});
+
 	it('erzwingt bei CHF den Kurs 1, auch wenn der Client etwas anderes schickt', () => {
 		const draft = parseReceiptDraft({ ...valid, fxRateToChf: '0.5' }, participants);
 		expect(draft.fxRateToChf).toBe('1');

@@ -76,6 +76,18 @@ export function effectiveRate(chargedChfMinor: number, foreignTotalMinor: number
 }
 
 /**
+ * Kurs aus einer Gleitkommazahl, wie sie aus einer JSON-Antwort kommt.
+ * Auf RATE_SCALE Stellen festgezurrt, bevor irgendetwas damit gerechnet wird -
+ * ab hier ist der Kurs wieder ein exakter Integer.
+ */
+export function rateFromNumber(value: number): Rate {
+	if (!Number.isFinite(value) || value <= 0) {
+		throw new Error(`Ungueltiger Wechselkurs: ${value}`);
+	}
+	return parseRate(value.toFixed(RATE_SCALE));
+}
+
+/**
  * Wandelt einen Betrag in Minor Units mit dem Kurs um.
  * Gibt den gerundeten Wert (kaufmaennisch, von der Null weg) und den exakten Rest
  * zurueck. Der Rest ist die Grundlage fuer die Grösstrest-Verteilung in Schritt 4.
