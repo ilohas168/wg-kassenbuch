@@ -1,0 +1,255 @@
+:root {
+	--bg: #f6f6f4;
+	--surface: #ffffff;
+	--surface-muted: #f0efec;
+	--border: #dcdad4;
+	--text: #1d1c1a;
+	--text-muted: #6c6a64;
+	--accent: #1f6f5c;
+	--accent-text: #ffffff;
+	--positive: #1f6f5c;
+	--negative: #a4402c;
+	--radius: 0.6rem;
+	color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #17181a;
+		--surface: #1f2124;
+		--surface-muted: #26282c;
+		--border: #35383d;
+		--text: #ecebe8;
+		--text-muted: #9d9b95;
+		--accent: #4fae94;
+		--accent-text: #10221d;
+		--positive: #6cc0a6;
+		--negative: #e08a76;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+}
+
+body {
+	background: var(--bg);
+	color: var(--text);
+	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+	font-size: 1rem;
+	line-height: 1.5;
+	-webkit-text-size-adjust: 100%;
+}
+
+.app {
+	max-width: 42rem;
+	margin: 0 auto;
+	padding: 0 1rem 4rem;
+}
+
+.topbar {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 1rem 0 0.5rem;
+}
+
+.topbar h1 {
+	font-size: 1.1rem;
+	margin: 0;
+	letter-spacing: 0.01em;
+}
+
+.topbar .phase {
+	color: var(--text-muted);
+	font-size: 0.8rem;
+}
+
+nav.tabs {
+	display: flex;
+	gap: 0.25rem;
+	padding: 0.5rem 0 1rem;
+	position: sticky;
+	top: 0;
+	background: var(--bg);
+	z-index: 5;
+}
+
+nav.tabs a {
+	flex: 1;
+	text-align: center;
+	padding: 0.5rem 0.25rem;
+	border-radius: var(--radius);
+	text-decoration: none;
+	color: var(--text-muted);
+	background: var(--surface-muted);
+	font-size: 0.9rem;
+}
+
+nav.tabs a[aria-current='page'] {
+	background: var(--accent);
+	color: var(--accent-text);
+	font-weight: 600;
+}
+
+h2 {
+	font-size: 1rem;
+	margin: 1.5rem 0 0.5rem;
+}
+
+.card {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 0.9rem 1rem;
+	margin-bottom: 0.75rem;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.muted {
+	color: var(--text-muted);
+	font-size: 0.85rem;
+}
+
+.amount {
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.positive {
+	color: var(--positive);
+}
+
+.negative {
+	color: var(--negative);
+}
+
+label {
+	display: block;
+	font-size: 0.85rem;
+	color: var(--text-muted);
+	margin-bottom: 0.2rem;
+}
+
+input,
+select,
+button {
+	font: inherit;
+	color: inherit;
+}
+
+input[type='text'],
+input[type='date'],
+select {
+	width: 100%;
+	padding: 0.5rem 0.6rem;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--surface);
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+
+button {
+	cursor: pointer;
+	border: 1px solid var(--border);
+	background: var(--surface);
+	border-radius: var(--radius);
+	padding: 0.5rem 0.8rem;
+}
+
+button.primary {
+	background: var(--accent);
+	color: var(--accent-text);
+	border-color: transparent;
+	font-weight: 600;
+	width: 100%;
+	padding: 0.75rem;
+}
+
+button.ghost {
+	background: transparent;
+	border-color: transparent;
+	color: var(--text-muted);
+	padding: 0.3rem 0.4rem;
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.field-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 0.6rem;
+	margin-bottom: 0.6rem;
+}
+
+.field-grid .wide {
+	grid-column: 1 / -1;
+}
+
+.chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+}
+
+.chip {
+	border: 1px solid var(--border);
+	background: var(--surface-muted);
+	color: var(--text-muted);
+	border-radius: 999px;
+	padding: 0.25rem 0.7rem;
+	font-size: 0.85rem;
+}
+
+.chip[aria-pressed='true'] {
+	background: var(--accent);
+	border-color: transparent;
+	color: var(--accent-text);
+	font-weight: 600;
+}
+
+.chip.guest {
+	border-style: dashed;
+}
+
+.error {
+	background: color-mix(in srgb, var(--negative) 12%, var(--surface));
+	border: 1px solid var(--negative);
+	color: var(--negative);
+	border-radius: var(--radius);
+	padding: 0.6rem 0.8rem;
+	margin-bottom: 0.75rem;
+	font-size: 0.9rem;
+}
+
+.empty {
+	color: var(--text-muted);
+	text-align: center;
+	padding: 2rem 1rem;
+}
+
+a {
+	color: var(--accent);
+}

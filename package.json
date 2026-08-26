@@ -17,6 +17,7 @@
 		"db:new": "supabase migration new"
 	},
 	"devDependencies": {
+		"@electric-sql/pglite": "^0.5.8",
 		"@sveltejs/adapter-auto": "^7.0.1",
 		"@sveltejs/kit": "^2.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
