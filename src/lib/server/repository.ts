@@ -141,6 +141,73 @@ export async function updateReceipt(client: SupabaseClient, id: string, draft: R
 	if (error) throw new Error(`Beleg konnte nicht aktualisiert werden: ${error.message}`);
 }
 
+/** Legt einen Gast an - blosser Name, kein Konto, keine E-Mail. */
+export async function createGuest(client: SupabaseClient, displayName: string): Promise<string> {
+	const { data, error } = await client
+		.from('participants')
+		.insert({ display_name: displayName, kind: 'guest' })
+		.select('id')
+		.single();
+
+	if (error) throw new Error(`Gast konnte nicht angelegt werden: ${error.message}`);
+	return data.id as string;
+}
+
+/**
+ * Bucht die Ausgleichszahlung und archiviert den Gast in einem Aufruf (RPC).
+ * balanceChfMinor ist der Saldo des Gasts, wie ihn der Server gerechnet hat.
+ */
+export async function settleAndArchive(
+	client: SupabaseClient,
+	participantId: ParticipantId,
+	counterpartId: ParticipantId | null,
+	balanceChfMinor: number,
+	note: string | null
+): Promise<void> {
+	const { error } = await client.rpc('settle_and_archive', {
+		target_participant_id: participantId,
+		counterpart_id: counterpartId,
+		balance_chf_minor: balanceChfMinor,
+		note
+	});
+	if (error) throw new Error(`Abrechnung fehlgeschlagen: ${error.message}`);
+}
+
+/** Markiert eine vorgeschlagene Ueberweisung als bezahlt. */
+export async function createSettlement(
+	client: SupabaseClient,
+	settlement: { fromParticipant: ParticipantId; toParticipant: ParticipantId; amountChfMinor: number; note?: string | null }
+): Promise<void> {
+	const { error } = await client.from('settlements').insert({
+		from_participant: settlement.fromParticipant,
+		to_participant: settlement.toParticipant,
+		amount_chf_minor: settlement.amountChfMinor,
+		note: settlement.note ?? null
+	});
+	if (error) throw new Error(`Ausgleichszahlung konnte nicht gebucht werden: ${error.message}`);
+}
+
+/** Ausgleichszahlungen mit Datum und Notiz - fuer die Liste auf dem Abrechnungs-Screen. */
+export async function listSettlementHistory(
+	client: SupabaseClient
+): Promise<{ id: string; fromParticipant: string; toParticipant: string; amountChfMinor: number; settledAt: string; note: string | null }[]> {
+	const { data, error } = await client
+		.from('settlements')
+		.select('id, from_participant, to_participant, amount_chf_minor, settled_at, note')
+		.order('settled_at', { ascending: false });
+
+	if (error) throw new Error(`Ausgleichszahlungen konnten nicht geladen werden: ${error.message}`);
+
+	return (data ?? []).map((row) => ({
+		id: row.id as string,
+		fromParticipant: row.from_participant as string,
+		toParticipant: row.to_participant as string,
+		amountChfMinor: row.amount_chf_minor as number,
+		settledAt: row.settled_at as string,
+		note: (row.note as string | null) ?? null
+	}));
+}
+
 export async function deleteReceipt(client: SupabaseClient, id: string): Promise<void> {
 	const { error } = await client.from('receipts').delete().eq('id', id);
 	if (error) throw new Error(`Beleg konnte nicht geloescht werden: ${error.message}`);

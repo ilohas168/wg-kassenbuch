@@ -44,7 +44,16 @@
 
 			const response = await fetch('/api/receipt-scan', { method: 'POST', body });
 			if (!response.ok) {
-				throw new Error((await response.text()) || 'Der Beleg konnte nicht gelesen werden.');
+				const detail = await response.text();
+				// SvelteKit schickt Fehler als JSON mit { message }, eigene 401er als { error }.
+				let message = detail;
+				try {
+					const parsed = JSON.parse(detail);
+					message = parsed.message ?? parsed.error ?? detail;
+				} catch {
+					// Dann war es kein JSON - der Rohtext tut es auch.
+				}
+				throw new Error(message || 'Der Beleg konnte nicht gelesen werden.');
 			}
 
 			const result = await response.json();

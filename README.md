@@ -6,12 +6,15 @@ bei Widersprüchen gilt die Spec, nicht dieses README.
 
 ## Stand
 
+Alle sechs Phasen sind gebaut. Was noch fehlt, ist nichts am Code, sondern die
+Verbindung nach draussen: Supabase-Projekt, Deploy, Keys (siehe **Setup**).
+
 - [x] **Phase 0** — Repo, SvelteKit, Schema, Migrationen, Seed mit drei Mitgliedern
-- [ ] **Phase 1** — Manuelle Erfassung, Aufteilung, Saldoberechnung, Tests
-- [x] **Phase 2** — Magic Link, RLS-Policies, PWA, Vercel
-- [ ] **Phase 3** — Fotoupload, OCR-Endpoint, Review-Screen
-- [ ] **Phase 4** — EUR-Flow in der UI
-- [ ] **Phase 5** — Gästeverwaltung und Abrechnung
+- [x] **Phase 1** — Manuelle Erfassung, Aufteilung, Saldoberechnung, Tests
+- [x] **Phase 2** — Magic Link, RLS-Policies, PWA, Vercel-Adapter
+- [x] **Phase 3** — Fotoupload, Belegerkennung, Review-Screen, Key-Leak-Check
+- [x] **Phase 4** — EUR-Flow: Währungsauswahl, Referenzkurs, Effektivkurs
+- [x] **Phase 5** — Gästeverwaltung und Abrechnung
 
 ## Setup
 
@@ -19,38 +22,37 @@ bei Widersprüchen gilt die Spec, nicht dieses README.
 npm install
 ```
 
-Supabase-Projekt (einmalig, im Browser): auf [supabase.com](https://supabase.com/dashboard)
-ein Projekt anlegen, Region `eu-central-1` (Frankfurt) — das ist von Basel aus die
-nächstgelegene. DB-Passwort notieren.
+**Supabase-Projekt** (einmalig, im Browser): auf [supabase.com](https://supabase.com/dashboard)
+ein Projekt anlegen, Region `eu-central-1` (Frankfurt) — von Basel aus die nächstgelegene.
+DB-Passwort notieren.
 
 ```sh
-npx supabase login                          # oeffnet den Browser
+npx supabase login                              # öffnet den Browser
 npx supabase link --project-ref <project-ref>   # ref steht in der Projekt-URL
-npm run db:push                             # Schema + Seed ins Cloud-Projekt
-cp .env.example .env                        # Werte aus Project Settings -> API
+npm run db:push                                 # Schema, Seed, Policies, Storage-Bucket
+cp .env.example .env                            # Werte aus Project Settings -> API
 ```
 
-## Anmeldung
+**Anmeldung** freischalten:
 
-Login läuft über Magic Link, ohne Passwort. Zwei Dinge müssen dafür stimmen:
-
-1. **`ALLOWED_EMAILS`** in `.env` bzw. in den Vercel-Variablen — kommagetrennt die drei
-   WG-Adressen. Ohne diese Liste ist der Login gesperrt: Supabase verschickt Magic Links
-   sonst an jede Adresse, die danach fragt, und die App hängt öffentlich im Netz.
-2. Im Supabase-Dashboard unter **Authentication → URL Configuration**: Site URL auf die
+1. `ALLOWED_EMAILS` in `.env` (und in den Vercel-Variablen) auf die drei WG-Adressen
+   setzen, kommagetrennt. Ohne diese Liste ist der Login gesperrt — Supabase verschickt
+   Magic Links sonst an jede Adresse, die danach fragt, und die App hängt öffentlich im Netz.
+2. Im Dashboard unter **Authentication → URL Configuration**: Site URL auf die
    Vercel-Domain, und `http://localhost:5173/auth/callback` sowie
    `https://<domain>/auth/callback` als Redirect URLs eintragen.
 
+**Belegerkennung**: `ANTHROPIC_API_KEY` in `.env` bzw. bei Vercel. Der Key wird
+ausschliesslich serverseitig gelesen (`src/lib/server/anthropic.ts`).
+
 Beim ersten Login wählt jede Person einmalig ihr Mitglied aus („Wer bist du?"). Das setzt
-`participants.auth_user_id` und passiert genau einmal pro Person. Die Spec sagt nicht, wie
-diese Verknüpfung zustande kommen soll — eine E-Mail-Spalte im Schema wäre die Alternative
-gewesen, aber die steht nicht im Datenmodell.
+`participants.auth_user_id` und passiert genau einmal pro Person.
 
 ## Deploy
 
 ```sh
 npx vercel link
-npx vercel env add PUBLIC_SUPABASE_URL          # und die anderen drei aus .env.example
+npx vercel env add PUBLIC_SUPABASE_URL          # und die vier anderen aus .env.example
 npx vercel --prod
 ```
 
@@ -68,23 +70,54 @@ Die Runtime ist auf `fra1` festgenagelt, passend zur Datenbank in Frankfurt.
 | `npm run db:new -- <name>` | neue Migration anlegen |
 | `npm run db:push` | Migrationen ins verknüpfte Projekt pushen |
 
+## Aufbau
+
+```
+src/lib/money/      Rechenkern: Aufteilung, Kurse, Salden, Formatierung. Ohne DB, ohne UI.
+src/lib/ocr/        Parser für die Antwort der Belegerkennung. Rein, ohne SDK.
+src/lib/server/     Supabase-Clients, Repository, Entwurfsprüfung, Anthropic-Aufruf.
+src/lib/components/ ReceiptForm — Erfassen, Review und Bearbeiten in einem Formular.
+src/routes/         Übersicht, Erfassen, Verlauf, Abrechnen, Personen, Login, Auth.
+supabase/migrations Schema, Seed, RPCs, Policies, Storage-Bucket.
+```
+
+Der Rechenkern kennt weder Datenbank noch Browser. Dieselbe Funktion, die den Saldo
+rechnet, zeigt im Formular die Vorschau der Anteile.
+
 ## Datenbank
 
-Migrationen liegen in `supabase/migrations/` und sind die einzige Quelle der Wahrheit
-für das Schema — keine Änderungen von Hand im Dashboard, sonst driftet der Stand
-auseinander.
+Migrationen in `supabase/migrations/` sind die einzige Quelle der Wahrheit — keine
+Änderungen von Hand im Dashboard, sonst driftet der Stand auseinander.
 
 Der Seed der drei Mitglieder ist bewusst eine Migration und keine `seed.sql`:
-`supabase db push` führt nur Migrationen aus, `seed.sql` liefe nur bei einem lokalen
-`db reset`. Die Inserts sind über feste UUIDs idempotent.
+`supabase db push` führt nur Migrationen aus. Die Inserts sind über feste UUIDs idempotent.
 
-RLS ist auf allen Tabellen aktiv, aber es gibt noch keine Policies — die Datenbank ist
-damit für den anon key dicht. Bis die Policies in Phase 2 kommen, läuft jeder Zugriff
-serverseitig über den `service_role` key.
+Beleg, Positionen und Anteile werden über die RPC `create_receipt` / `update_receipt`
+geschrieben — ein Aufruf, eine Transaktion. Einzeln geschickt könnte ein Abbruch einen
+Beleg ohne Positionen hinterlassen, und damit einen Saldo, der stillschweigend falsch ist.
+
+RLS ist auf allen Tabellen aktiv: wer als aktives Mitglied mit seinem Konto verknüpft ist,
+sieht und schreibt alles, alle anderen nichts. `anon` hat keinerlei Rechte. Auf
+`participants` darf der Client nur `display_name` und `is_active` ändern; ein DELETE-Recht
+gibt es dort nicht (harte Regel 8).
+
+## Tests
+
+```sh
+npm test
+```
+
+92 Tests, davon 29 gegen **echtes Postgres**: [PGlite](https://pglite.dev) startet
+Postgres 18 als WebAssembly im Testprozess, spielt die Migrationen ein und prüft
+Constraints, RPC-Transaktionen und die RLS-Policies mit echten Rollen und JWT-Claim.
+Dafür braucht es weder Docker noch das Cloud-Projekt.
+
+Die von der Spec geforderten Rechentests liegen in `src/lib/money/*.test.ts`.
 
 ## Konventionen
 
 - Prosa, Kommentare und UI auf Deutsch. Bezeichner in Code und Schema auf Englisch.
 - Geld ist ausnahmslos `integer` in Minor Units (Rappen/Eurocent), Spalten enden auf
-  `_minor`. Formatiert wird nur in einer zentralen Display-Funktion.
+  `_minor`. Formatiert wird nur in `src/lib/money/format.ts`.
+- Wechselkurse werden als skalierte Integer in BigInt gerechnet, nie als Gleitkommazahl.
 - Salden werden berechnet, nie gespeichert.

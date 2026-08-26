@@ -512,3 +512,106 @@ describe('RLS', () => {
 		}
 	});
 });
+
+describe('settle_and_archive', () => {
+	async function createGuest(name = 'Yuki'): Promise<string> {
+		const guest = await db.query<{ id: string }>(
+			`insert into participants (display_name, kind) values ('${name}', 'guest') returning id`
+		);
+		return guest.rows[0].id;
+	}
+
+	it('bucht die Schuld des Gasts und archiviert ihn in einem Schritt', async () => {
+		const guestId = await createGuest();
+		await db.query('select settle_and_archive($1::uuid, $2::uuid, $3::integer, $4::text)', [
+			guestId,
+			SHINICHIRO,
+			-750,
+			'Abrechnung Yuki'
+		]);
+
+		const settlement = await db.query<{ from_participant: string; to_participant: string; amount_chf_minor: number; note: string }>(
+			'select from_participant, to_participant, amount_chf_minor, note from settlements'
+		);
+		expect(settlement.rows).toEqual([
+			{ from_participant: guestId, to_participant: SHINICHIRO, amount_chf_minor: 750, note: 'Abrechnung Yuki' }
+		]);
+
+		const guest = await db.query<{ is_active: boolean }>(
+			'select is_active from participants where id = $1',
+			[guestId]
+		);
+		expect(guest.rows[0].is_active).toBe(false);
+	});
+
+	it('dreht die Richtung um, wenn der Gast Geld bekommt', async () => {
+		const guestId = await createGuest();
+		await db.query('select settle_and_archive($1::uuid, $2::uuid, $3::integer, null)', [
+			guestId,
+			FABIAN,
+			1200
+		]);
+
+		const settlement = await db.query<{ from_participant: string; to_participant: string; amount_chf_minor: number }>(
+			'select from_participant, to_participant, amount_chf_minor from settlements'
+		);
+		expect(settlement.rows).toEqual([
+			{ from_participant: FABIAN, to_participant: guestId, amount_chf_minor: 1200 }
+		]);
+	});
+
+	it('archiviert ohne Buchung, wenn der Saldo schon 0 ist', async () => {
+		const guestId = await createGuest();
+		await db.query('select settle_and_archive($1::uuid, null, 0, null)', [guestId]);
+
+		expect(await count('settlements')).toBe(0);
+		const guest = await db.query<{ is_active: boolean }>(
+			'select is_active from participants where id = $1',
+			[guestId]
+		);
+		expect(guest.rows[0].is_active).toBe(false);
+	});
+
+	it('verweigert eine offene Abrechnung ohne Gegenseite', async () => {
+		const guestId = await createGuest();
+		await expect(
+			db.query('select settle_and_archive($1::uuid, null, -500, null)', [guestId])
+		).rejects.toThrow(/fehlt die Gegenseite/);
+		expect(await count('settlements')).toBe(0);
+	});
+
+	it('verweigert die Abrechnung mit sich selbst und unbekannte Teilnehmer', async () => {
+		const guestId = await createGuest();
+		await expect(
+			db.query('select settle_and_archive($1::uuid, $1::uuid, -500, null)', [guestId])
+		).rejects.toThrow(/mit sich selbst/);
+		await expect(
+			db.query('select settle_and_archive($1::uuid, $2::uuid, 0, null)', [
+				'00000000-0000-4000-8000-00000000dead',
+				SHINICHIRO
+			])
+		).rejects.toThrow(/existiert nicht/);
+	});
+
+	it('laesst die alten Belege des Gasts unangetastet', async () => {
+		const guestId = await createGuest();
+		const receiptId = await createReceipt({
+			merchant: 'Grill',
+			paidBy: SHINICHIRO,
+			lineItems: [{ label: 'Fleisch', amountMinor: 3000, shares: [SHINICHIRO, guestId] }]
+		});
+
+		await db.query('select settle_and_archive($1::uuid, $2::uuid, $3::integer, null)', [
+			guestId,
+			SHINICHIRO,
+			-1500
+		]);
+
+		const shares = await db.query<{ participant_id: string }>(
+			`select s.participant_id from line_item_shares s
+			 join line_items l on l.id = s.line_item_id where l.receipt_id = $1`,
+			[receiptId]
+		);
+		expect(shares.rows.map((row) => row.participant_id).sort()).toEqual([SHINICHIRO, guestId].sort());
+	});
+});

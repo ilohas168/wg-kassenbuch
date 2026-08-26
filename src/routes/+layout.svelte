@@ -11,7 +11,9 @@
 	const tabs = [
 		{ href: '/', label: 'Übersicht' },
 		{ href: '/receipts/new', label: 'Erfassen' },
-		{ href: '/receipts', label: 'Verlauf' }
+		{ href: '/receipts', label: 'Verlauf' },
+		{ href: '/settle', label: 'Abrechnen' },
+		{ href: '/people', label: 'Personen' }
 	];
 
 	// /receipts/new darf den Verlauf nicht mitmarkieren, sonst leuchten zwei Tabs.

@@ -1,5 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
-import { error, redirect, type Handle } from '@sveltejs/kit';
+import { error, json, redirect, type Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { env } from '$env/dynamic/public';
 import { participantForAuthUser } from '$lib/server/repository.js';
@@ -66,12 +66,23 @@ const authGuard: Handle = async ({ event, resolve }) => {
 
 	if (isPublic(event.url.pathname)) return resolve(event);
 
-	if (!user) redirect(303, `/login?weiter=${encodeURIComponent(event.url.pathname)}`);
+	// Die Endpoints unter /api werden per fetch gerufen. Eine Weiterleitung auf die
+	// Login-Seite kaeme dort als HTML mit Status 200 an - der Aufrufer haelt das fuer
+	// eine Antwort und stolpert erst beim Parsen. Also ehrlich 401.
+	const isApi = event.url.pathname.startsWith('/api/');
+
+	if (!user) {
+		if (isApi) return json({ error: 'Nicht angemeldet.' }, { status: 401 });
+		redirect(303, `/login?weiter=${encodeURIComponent(event.url.pathname)}`);
+	}
 
 	// Ein Konto ohne verknuepftes Mitglied kommt an keine Daten - die Policies geben
 	// ihm nichts. Statt einer leeren App bekommt es den Verknuepfungsschritt.
 	const participant = await participantForAuthUser(event.locals.supabase, user.id);
-	if (!participant) redirect(303, '/auth/claim');
+	if (!participant) {
+		if (isApi) return json({ error: 'Dieses Konto gehört zu keinem Mitglied.' }, { status: 403 });
+		redirect(303, '/auth/claim');
+	}
 
 	event.locals.participant = participant;
 	return resolve(event);

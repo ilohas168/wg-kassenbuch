@@ -46,5 +46,6 @@
 	<p class="muted">
 		{data.transfers.length}
 		{data.transfers.length === 1 ? 'Überweisung gleicht' : 'Überweisungen gleichen'} alles aus.
+		<a href="/settle">Abrechnen</a>
 	</p>
 {/if}
