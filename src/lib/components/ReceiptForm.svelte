@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		computeReceiptShares,
+		formatMinor,
 		formatMoney,
 		tryParseMoneyInput,
 		type Participant,
@@ -17,7 +18,8 @@
 	interface InitialDraft {
 		merchant: string;
 		purchasedAt: string;
-		paidBy: ParticipantId;
+		/** Fehlt beim Vorschlag aus dem Foto - wer bezahlt hat, steht selten auf dem Beleg. */
+		paidBy?: ParticipantId;
 		rows: DraftRow[];
 	}
 
@@ -25,12 +27,18 @@
 		participants,
 		initial = null,
 		submitLabel = 'Speichern',
-		error = null
+		error = null,
+		photoPath = null,
+		scannedTotalMinor = null
 	}: {
 		participants: Participant[];
 		initial?: InitialDraft | null;
 		submitLabel?: string;
 		error?: string | null;
+		/** Pfad des schon hochgeladenen Belegfotos, falls der Beleg vom Foto kommt. */
+		photoPath?: string | null;
+		/** Beleg-Total laut Foto. Weicht es von den Positionen ab, wird gewarnt. */
+		scannedTotalMinor?: number | null;
 	} = $props();
 
 	const activeMembers = $derived(
@@ -118,11 +126,21 @@
 		}
 	});
 
+	/**
+	 * Die Pruefung aus der Spec, im Code statt im Prompt: weicht die Summe der Positionen
+	 * vom Total auf dem Beleg ab, sieht der Nutzer die Differenz. Verboten ist nichts -
+	 * er kann speichern, die Differenz als Position uebernehmen oder die Zeilen korrigieren.
+	 */
+	const mismatchMinor = $derived(
+		scannedTotalMinor !== null && totalMinor !== null ? scannedTotalMinor - totalMinor : 0
+	);
+
 	const payload = $derived(
 		JSON.stringify({
 			merchant,
 			purchasedAt,
 			currency: 'CHF',
+			photoPath,
 			paidBy,
 			lineItems: rows.map((row, index) => ({
 				label: row.label,
@@ -166,6 +184,20 @@
 		rows = rows.map((row) => ({ ...row, participantIds: [...ids] }));
 	}
 
+	/** Die nicht erkannte Differenz als eigene Position - explizit statt stillschweigend. */
+	function addDifferenceRow() {
+		rows = [
+			...rows,
+			{
+				label: 'Nicht erkannt',
+				amount: formatMinor(mismatchMinor),
+				participantIds: participants
+					.filter((participant) => participant.kind === 'member' && participant.isActive)
+					.map((participant) => participant.id)
+			}
+		];
+	}
+
 	function allPrivate() {
 		rows = rows.map((row) => ({ ...row, participantIds: paidBy ? [paidBy] : [] }));
 	}
@@ -206,6 +238,20 @@
 			</div>
 		</div>
 	</div>
+
+	{#if mismatchMinor !== 0}
+		<div class="error">
+			<strong>Das Total stimmt nicht mit den Positionen überein.</strong>
+			<div style="margin-top: 0.3rem">
+				Auf dem Beleg steht {formatMoney(scannedTotalMinor ?? 0)}, erfasst sind
+				{formatMoney(totalMinor ?? 0)} — Differenz {formatMoney(mismatchMinor)}.
+				Vermutlich hat die Erkennung eine Zeile nicht gelesen.
+			</div>
+			<button type="button" onclick={addDifferenceRow} style="margin-top: 0.5rem">
+				Differenz als Position übernehmen
+			</button>
+		</div>
+	{/if}
 
 	<div class="row" style="margin-bottom: 0.5rem">
 		<h2 style="margin: 0">Positionen</h2>

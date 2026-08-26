@@ -34,6 +34,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 					totalMinor: receipt.totalMinor,
 					totalChfMinor: receipt.totalChfMinor,
 					paidByName: nameOf(receipt.paidBy),
+					photoPath: receipt.photoPath,
 					lineItems: receipt.lineItems.map((item) => ({
 						id: item.id,
 						label: item.label,

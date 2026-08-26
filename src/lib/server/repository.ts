@@ -34,6 +34,8 @@ export interface ReceiptDraft {
 	paidBy: ParticipantId;
 	/** Wer den Beleg erfasst hat. Beschreibt die Erfassung, nicht den Einkauf. */
 	createdBy?: ParticipantId | null;
+	/** Pfad im Storage-Bucket, falls ein Foto dazugehoert. */
+	photoPath?: string | null;
 	lineItems: { label: string; amountMinor: number; shares: { participantId: ParticipantId; weight: number }[] }[];
 }
 
@@ -154,6 +156,7 @@ function toPayload(draft: ReceiptDraft) {
 		total_chf_minor: draft.totalChfMinor,
 		paid_by: draft.paidBy,
 		created_by: draft.createdBy ?? '',
+		photo_path: draft.photoPath ?? '',
 		line_items: draft.lineItems.map((item) => ({
 			label: item.label,
 			amount_minor: item.amountMinor,

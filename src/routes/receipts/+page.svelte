@@ -62,7 +62,12 @@
 			{/if}
 
 			<div class="row" style="margin-top: 0.6rem">
-				<a href="/receipts/{receipt.id}">Bearbeiten</a>
+				<span>
+					<a href="/receipts/{receipt.id}">Bearbeiten</a>
+					{#if receipt.photoPath}
+						· <a href="/api/photo?path={encodeURIComponent(receipt.photoPath)}" target="_blank" rel="noreferrer">Foto</a>
+					{/if}
+				</span>
 				<form method="POST" action="?/delete">
 					<input type="hidden" name="id" value={receipt.id} />
 					<button class="ghost" type="submit">Löschen</button>

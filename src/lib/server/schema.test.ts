@@ -31,6 +31,8 @@ beforeAll(async () => {
 		create role anon;
 		create role authenticated;
 		create role service_role;
+		create schema storage;
+		create table storage.buckets (id text primary key, name text not null, public boolean not null default false);
 		create or replace function auth.uid() returns uuid language sql stable as $stub$
 			select nullif(nullif(current_setting('request.jwt.claims', true), '')::json->>'sub', '')::uuid;
 		$stub$;
@@ -63,6 +65,13 @@ describe('Migrationen', () => {
 		await db.exec(readFileSync(join(MIGRATIONS, seed), 'utf8'));
 		const result = await db.query<{ count: string }>('select count(*)::text as count from participants');
 		expect(result.rows[0].count).toBe('3');
+	});
+
+	it('legt einen privaten Bucket fuer die Belegfotos an', async () => {
+		const result = await db.query<{ id: string; public: boolean }>(
+			"select id, public from storage.buckets where id = 'receipts'"
+		);
+		expect(result.rows).toEqual([{ id: 'receipts', public: false }]);
 	});
 
 	it('hat RLS auf allen Tabellen aktiv', async () => {

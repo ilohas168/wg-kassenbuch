@@ -33,6 +33,13 @@ export function parseReceiptDraft(raw: unknown, participants: Participant[]): Re
 		throw new DraftError(`Waehrung ${currency} wird nicht unterstuetzt.`);
 	}
 
+	// Der Pfad kommt vom eigenen Scan-Endpoint zurueck; hier zaehlt nur, dass es ein
+	// Pfad im eigenen Bucket ist und kein Ausflug in ein anderes Verzeichnis.
+	const photoPath = typeof input.photoPath === 'string' && input.photoPath.length > 0 ? input.photoPath : null;
+	if (photoPath !== null && (photoPath.includes('..') || photoPath.startsWith('/'))) {
+		throw new DraftError('Der Pfad des Belegfotos ist ungültig.');
+	}
+
 	const known = new Map(participants.map((participant) => [participant.id, participant]));
 	const paidBy = expectString(input.paidBy, 'Zahler');
 	if (!known.has(paidBy)) {
@@ -94,6 +101,7 @@ export function parseReceiptDraft(raw: unknown, participants: Participant[]): Re
 		fxRateToChf,
 		totalChfMinor,
 		paidBy,
+		photoPath,
 		lineItems
 	};
 
