@@ -25,3 +25,6 @@ vite.config.ts.timestamp-*
 # Supabase CLI
 supabase/.temp
 supabase/.branches
+
+# Screenshots, die zum Besprechen im Projektordner landen
+/Screenshot*.png

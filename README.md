@@ -23,8 +23,9 @@ npm install
 ```
 
 **Supabase-Projekt** (einmalig, im Browser): auf [supabase.com](https://supabase.com/dashboard)
-ein Projekt anlegen, Region `eu-central-1` (Frankfurt) — von Basel aus die nächstgelegene.
-DB-Passwort notieren.
+ein Projekt anlegen und das DB-Passwort notieren. Die Region bestimmt, wo die Daten liegen;
+dieses Projekt läuft in `eu-west-1` (Irland). Der Vercel-Adapter in `vite.config.ts` ist
+darauf abgestimmt (`dub1`) — wer die Datenbank woanders anlegt, zieht die Region dort mit.
 
 ```sh
 npx supabase login                              # öffnet den Browser
@@ -56,7 +57,7 @@ npx vercel env add PUBLIC_SUPABASE_URL          # und die vier anderen aus .env.
 npx vercel --prod
 ```
 
-Die Runtime ist auf `fra1` festgenagelt, passend zur Datenbank in Frankfurt.
+Die Runtime ist auf `dub1` festgenagelt, passend zur Datenbank in Irland.
 
 ## Skripte
 
